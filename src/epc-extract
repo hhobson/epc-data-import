@@ -1,0 +1,105 @@
+#!/bin/bash
+
+if [ $# -ne 3 ]; then
+  echo "Usage: $0 <certificate type [domestic|non-domestic|display]> <environment [dev|staging|production]> <api key>"
+  exit 1
+fi
+
+CERT_TYPE=$1
+ENVIRONMENT=$2
+API_KEY=$3
+if [[ "$CERT_TYPE" != "domestic" && "$CERT_TYPE" != "non-domestic" && "$CERT_TYPE" != "display" ]]; then
+  echo "certificate type must be one of 'domestic', 'non-domestic' or 'display'"
+  exit 1
+elif [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
+  echo "certificate type must be one of 'dev', 'staging' or 'production''"
+  exit 1
+fi
+
+# Get session cookies
+curl -sL -X GET \
+  "https://epc.opendatacommunities.org/login-with-token?token=$API_KEY&email=hhobson%40protonmail.com" \
+  -c cookie-jar.txt \
+  > /dev/null
+
+# Get zip file
+ZIP_FILE=all-$CERT_TYPE-certificates.zip
+# -L required as will redirect to an autorised S3 URL
+curl -L -X GET \
+  "https://epc.opendatacommunities.org/files/$ZIP_FILE" \
+  -b cookie-jar.txt \
+  > $ZIP_FILE
+
+# # Test zip file
+unzip -tq $ZIP_FILE
+if [ $? -ne 0 ];then
+  echo "`date -u +%FT%T` ERROR: Issue with zip file"
+  exit 1
+fi
+
+# Unzip all files
+unzip -q $ZIP_FILE -x LICENCE.txt -d $CERT_TYPE
+
+# Shorten Directory names to LAD codes
+PREFIX=$((${#CERT_TYPE}*2+2))
+for d in $CERT_TYPE/*; do
+  mv $d $CERT_TYPE/${d:$PREFIX:9}
+done
+
+if [ -d "$CERT_TYPE/_unknown_" ]; then
+  mv $CERT_TYPE/_unknown_ $CERT_TYPE/unknown-local-authority
+  # 348 LADs in Eng. & Wales plus unknown directory
+  EXPECTED_LADS=349
+else
+  EXPECTED_LADS=348
+fi
+
+# Validate data
+# Check number of LAD directories
+valid_lad_count() {
+  local lad_count=`ls $CERT_TYPE/ | wc -l`
+  if [ $lad_count -ne $EXPECTED_LADS ]; then
+    echo "`date -u +%FT%T` Error: Incorrect numer of LAD directories"
+    return 1
+  fi
+}
+
+# Check certificates.csv files
+valid_files() {
+  local file_count=0
+  local missing_key=0
+
+  for f in $CERT_TYPE/*/*; do
+    if [ -s "$f" ]; then
+      file_count=$((file_count+1))
+    fi
+    if [ -z `grep -o "LMK_KEY" $f` ]; then
+      missing_key=$((missing_key+1))
+    fi
+  done
+
+EXPECTED_FILES=$(($EXPECTED_LADS*2))
+  if [ $file_count -ne $EXPECTED_FILES ] || [ $missing_key -gt 0 ]; then
+    return 1
+  fi
+}
+
+valid_lad_count
+VALID_LAD_COUNT=$?
+valid_files
+VALID_FILES=$?
+# Import data to S3
+if [ $VALID_LAD_COUNT -ne 0 ] || [ $VALID_FILES -ne 0 ]; then
+  echo "`date -u +%FT%T` Error: Data Validation Failed"
+  aws s3 cp $CERT_TYPE/ s3://epc-extract-fail-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
+    --recursive \
+    --exclude "*" \
+    --include "*/certificates.csv"
+  exit 1
+else
+  aws s3 cp $CERT_TYPE/ s3://epc-raw-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
+    --recursive \
+    --exclude "*" \
+    --include "*/certificates.csv"
+  echo "`date -u +%FT%T` Success: Extract Job Done"
+fi
