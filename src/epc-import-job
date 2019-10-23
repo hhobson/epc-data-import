@@ -1,0 +1,15 @@
+#!/bin/bash
+
+if [ $# -ne 1 ]; then
+  echo "Usage: $0 <certificate type [domestic|non-domestic|display]>"
+  exit 1
+fi
+
+CERT_TYPE=$1
+
+# Extract
+bin/epc-extract $CERT_TYPE $ENVIRONMENT $EPC_OPEN_DATA_API_KEY
+if [ $? -ne 0 ];then
+  echo "`date -u +%FT%T` ERROR: epc-extract issue"
+  exit 1
+fi

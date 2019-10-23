@@ -1,0 +1,22 @@
+#!/bin/bash
+
+if [ -z "$1" ]; then
+  echo "Usage: $0 <environment [dev|staging|production]> (repository name)"
+  exit 1;
+fi
+
+ENVIRONMENT=$1
+REPOSITORY_NAME=${2-"epc-import-$ENVIRONMENT"}
+
+IMAGE=`aws ecr describe-repositories --repository-names $REPOSITORY_NAME \
+  --query "repositories[*].repositoryUri" --output text`
+if [ $? -ne 0 ]; then
+  echo "ERROR: Can't find ERC Repository $REPOSITORY_NAME"
+  exit 1
+fi
+
+IMAGE_TAG=$IMAGE:latest
+
+$(aws ecr get-login --no-include-email)
+docker build -t $IMAGE_TAG .
+docker push $IMAGE_TAG

@@ -1,0 +1,331 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EPC data import stack
+
+Parameters:
+  Environment:
+    Type: String
+    Description: The environment type
+    AllowedValues:
+      - dev
+      - staging
+      - production
+    ConstraintDescription: Must be one of dev, staging or production
+
+  KeyPair:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: The EC2 Key Pair
+
+  EPCOpenDataApiKey:
+    Type: String
+    Description: API Key for epc.opendatacommunities.org
+    NoEcho: true
+
+  DatabaseName:
+    Type: String
+    Description: Postgres database name
+    Default: postgres
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+
+  DatabaseHost:
+    Type: String
+    Description: Postgres database host
+    Default: localhost
+
+  DatabaseUsername:
+    Type: String
+    Description: Username for Postgres database
+    Default: postgres
+    NoEcho: true
+    MinLength: 1
+    MaxLength: 16
+    AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+
+  DatabasePassword:
+    Type: String
+    Description: Password for Postgres database
+    NoEcho: true
+    MinLength: 10
+    MaxLength: 40
+    ConstraintDescription: Must have 10 or more characters
+
+Mappings:
+  SubnetConfig:
+    VPC:
+      CIDR: 10.255.0.0/16
+    PublicOne:
+      CIDR: 10.255.0.0/24
+    PublicTwo:
+      CIDR: 10.255.1.0/24
+
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      CidrBlock: !FindInMap
+        - SubnetConfig
+        - VPC
+        - CIDR
+      Tags:
+        - Key: Name
+          Value: JustAnotherVPC
+        - Key: enviroment
+          Value: !Ref Environment
+
+  PublicSubnetOne:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 0
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !FindInMap
+        - SubnetConfig
+        - PublicOne
+        - CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: JustAnotherSubnetUno
+        - Key: enviroment
+          Value: !Ref Environment
+
+  PublicSubnetTwo:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      AvailabilityZone: !Select
+        - 1
+        - !GetAZs
+          Ref: AWS::Region
+      CidrBlock: !FindInMap
+        - SubnetConfig
+        - PublicTwo
+        - CIDR
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: JustAnotherSubnetDue
+        - Key: enviroment
+          Value: !Ref Environment
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: JustAnotherInternetGateway
+        - Key: enviroment
+          Value: !Ref Environment
+
+  GatewayAttachement:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: JustAnotherRouteTable
+        - Key: enviroment
+          Value: !Ref Environment
+
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: GatewayAttachement
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnetOneRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetOne
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetTwoRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetTwo
+      RouteTableId: !Ref PublicRouteTable
+
+  EPCRawBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub epc-raw-${Environment}
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Suspended
+      Tags:
+        - Key: enviroment
+          Value: !Ref Environment
+
+  EPCExtractFailBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    Properties:
+      BucketName: !Sub epc-extract-fail-${Environment}
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Suspended
+      Tags:
+        - Key: enviroment
+          Value: !Ref Environment
+
+  EPCImportRepository:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: !Sub epc-import-${Environment}
+      Tags: 
+        - Key: enviroment
+          Value: !Ref Environment
+
+
+  BatchComputeEnv:
+    Type: AWS::Batch::ComputeEnvironment
+    Properties: 
+      ComputeEnvironmentName: !Sub JustAnotherComputeEnv-${Environment}
+      ComputeResources: 
+         AllocationStrategy: BEST_FIT_PROGRESSIVE
+         DesiredvCpus: 0
+         Ec2KeyPair: !Ref KeyPair
+         InstanceRole: !Ref BatchComputeEnvInstanceProfile
+         InstanceTypes: 
+          - optimal
+         MaxvCpus: 64
+         MinvCpus: 0
+         SecurityGroupIds: 
+          - !Ref BatchComputeEnvSecurityGroup
+         Subnets: 
+          - !Ref PublicSubnetOne
+          - !Ref PublicSubnetTwo
+         Tags: { "enviroment": { "Ref" : "Environment" } }
+         Type: EC2
+      ServiceRole: !Ref BatchComputeEnvServiceRole
+      State: Enabled
+      Type: Managed
+
+  BatchComputeEnvSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties: 
+      GroupDescription: Access to Batch instances
+      VpcId: !Ref VPC
+      Tags: 
+        - Key: enviroment
+          Value: !Ref Environment
+
+  BatchComputeEnvRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+      Path: /
+      Policies:
+        - PolicyName: batch-policy
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:List*
+                  - s3:PutObject
+                  - s3:DeleteObject
+                Resource:
+                  - !GetAtt EPCRawBucket.Arn
+                  - !GetAtt EPCExtractFailBucket.Arn
+                  - !Sub
+                    - ${BucketArn}/*
+                    - { BucketArn: !GetAtt EPCRawBucket.Arn }
+                  - !Sub
+                    - ${BucketArn}/*
+                    - { BucketArn: !GetAtt EPCExtractFailBucket.Arn }
+      Tags: 
+        - Key: enviroment
+          Value: !Ref Environment
+
+  BatchComputeEnvInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref BatchComputeEnvRole
+
+  BatchComputeEnvServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - batch.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
+      Path: /
+      Tags: 
+        - Key: enviroment
+          Value: !Ref Environment
+
+  BatchJobQueue:
+    Type: AWS::Batch::JobQueue
+    Properties:
+      JobQueueName: JustAnotherJobQueue
+      ComputeEnvironmentOrder:
+        - Order: 1
+          ComputeEnvironment: !Ref BatchComputeEnv
+      Priority: 10
+      State: ENABLED
+
+  EPCBatchJob:
+    Type: AWS::Batch::JobDefinition
+    Properties:
+      Type: container
+      JobDefinitionName: epc-import-job
+      ContainerProperties:
+        Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EPCImportRepository}:latest
+        Vcpus: 2
+        Memory: 2000
+        Command:
+          - bin/epc-import-job
+          - Ref::certtype
+        Environment:
+          - Name: ENVIRONMENT
+            Value: !Ref Environment
+          - Name: EPC_OPEN_DATA_API_KEY
+            Value: !Ref EPCOpenDataApiKey
+          - Name: DB_NAME
+            Value: !Ref DatabaseName
+          - Name: DB_HOST
+            Value: !Ref DatabaseHost
+          - Name: DB_PORT
+            Value: 5432
+          - Name: DB_USER
+            Value: !Ref DatabaseUsername
+          - Name: DB_PASSWORD
+            Value: !Ref DatabasePassword
+      Parameters: { "certtype" : "domestic" }
+      RetryStrategy:
+         Attempts: 1
+      Timeout:
+         AttemptDurationSeconds: 2700

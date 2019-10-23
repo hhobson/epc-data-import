@@ -43,3 +43,37 @@ Data ingestion pipeline that allows for automated importing of data. Specific da
    * Call external API for all unique addresses
    * Add API outputs to sepearte staging table
    * Add data to DB table - `INSERT SELECT` with query joining two staging tables
+
+## Deploy AWS Infrastructure
+Will need to have awscli installed
+
+### Deploy CloudFormation template
+```
+aws cloudformation deploy --template-file cloudformation.yaml \ 
+  --stack-name EPCImport<Environment> \
+  --parameter-overrides \
+    Environment=<environment [dev|staging|production]> \
+    KeyPair=<EC2 key pair name> \
+    EPCOpenDataApiKey=<> \
+    DatabasePassword=<database password [10 to 40 char]> \
+  --no-fail-on-empty-changeset \
+  --capabilities CAPABILITY_IAM
+```
+Following parameters have defaults set:
+ * DatabaseName: `postgres`
+ * DatabaseHost: `localhost`
+ * DatabaseUsername: `postgres`
+Add to `--parameter-overrides` to chagne.
+
+### Deploy Docker Image
+To build and deploy docker image to ECR run `bin/image-build <environment [dev|staging|production]> `
+
+## Trigger Batch Job
+To trigger a batch job run:
+```
+aws batch submit-job --job-name "epc-import-job-`date +%y%m%d_%H%M%S`" \
+  --job-queue arn:aws:batch:us-east-1:598346750316:job-queue/JustAnotherJobQueue \
+  --job-definition arn:aws:batch:us-east-1:598346750316:job-definition/epc-import-job:1 \
+  --parameters certtype=<certificate type [domestic|non-domestic|display]>
+```
+Default `certtype` parameter is `domestic`, so only need to include if want to run non-domestic or display. 
