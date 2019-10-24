@@ -1,17 +1,18 @@
 #!/bin/bash
 
 if [ $# -ne 2 ]; then
-  echo "Usage: $0 <certificate type [domestic|non-domestic|display]> <environment [dev|staging|production]> <api key>"
+  echo "Usage: $0 <certificate type [domestic|non-domestic|display]> <environment [dev|staging|production]>"
   exit 1
 fi
 
 CERT_TYPE=$1
 ENVIRONMENT=$2
 API_KEY=$EPC_OPEN_DATA_API_KEY
+API_EMAIL=$EPC_OPEN_DATA_API_EMAIL
 
 # Get session cookies
 curl -sL -X GET \
-  "https://epc.opendatacommunities.org/login-with-token?token=$API_KEY&email=hhobson%40protonmail.com" \
+  "https://epc.opendatacommunities.org/login-with-token?token=$API_KEY&email=$API_EMAIL" \
   -c cookie-jar.txt \
   > /dev/null
 
@@ -87,12 +88,12 @@ if [ $VALID_LAD_COUNT -ne 0 ] || [ $VALID_FILES -ne 0 ]; then
   aws s3 cp $CERT_TYPE/ s3://epc-extract-fail-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
     --recursive \
     --exclude "*" \
-    --include "*/certificates.csv"
+    --include "*/*.csv"
   exit 1
 else
   aws s3 cp $CERT_TYPE/ s3://epc-raw-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
     --recursive \
     --exclude "*" \
-    --include "*/certificates.csv"
+    --include "*/*.csv"
   echo "`date -u +%FT%T` Success: Extract Job Done"
 fi
