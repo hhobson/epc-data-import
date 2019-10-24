@@ -48,22 +48,22 @@ Data ingestion pipeline that allows for automated importing of data. Specific da
 Will need to have awscli installed
 
 ### Deploy CloudFormation template
+CloudFormation template will build AWS architecture. To deploy run:
 ```
 aws cloudformation deploy --template-file cloudformation.yaml \ 
   --stack-name EPCImport<Environment> \
   --parameter-overrides \
     Environment=<environment [dev|staging|production]> \
     KeyPair=<EC2 key pair name> \
-    EPCOpenDataApiKey=<> \
-    DatabasePassword=<database password [10 to 40 char]> \
+    EPCOpenDataApiKey=<opendatacommunities.org API key> \
+    DatabaseName <database name> \
+    DatabaseHost <database host> \
+    DatabaseUsername <database user name> \
+    DatabasePassword=<database user password [10 to 40 char]> \
   --no-fail-on-empty-changeset \
   --capabilities CAPABILITY_IAM
 ```
-Following parameters have defaults set:
- * DatabaseName: `postgres`
- * DatabaseHost: `localhost`
- * DatabaseUsername: `postgres`
-Add to `--parameter-overrides` to chagne.
+Will need to add database credentials and EC2 Key Pair name as they are not included in the CloudFormation template. 
 
 ### Deploy Docker Image
 To build and deploy docker image to ECR run `bin/image-build <environment [dev|staging|production]> `
@@ -77,3 +77,6 @@ aws batch submit-job --job-name "epc-import-job-`date +%y%m%d_%H%M%S`" \
   --parameters certtype=<certificate type [domestic|non-domestic|display]>
 ```
 Default `certtype` parameter is `domestic`, so only need to include if want to run non-domestic or display. 
+
+## Issues
+AWS Batch can take some time to spin up an EC2 instance

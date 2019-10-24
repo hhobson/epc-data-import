@@ -1,20 +1,13 @@
 #!/bin/bash
 
-if [ $# -ne 3 ]; then
+if [ $# -ne 2 ]; then
   echo "Usage: $0 <certificate type [domestic|non-domestic|display]> <environment [dev|staging|production]> <api key>"
   exit 1
 fi
 
 CERT_TYPE=$1
 ENVIRONMENT=$2
-API_KEY=$3
-if [[ "$CERT_TYPE" != "domestic" && "$CERT_TYPE" != "non-domestic" && "$CERT_TYPE" != "display" ]]; then
-  echo "certificate type must be one of 'domestic', 'non-domestic' or 'display'"
-  exit 1
-elif [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
-  echo "certificate type must be one of 'dev', 'staging' or 'production''"
-  exit 1
-fi
+API_KEY=$EPC_OPEN_DATA_API_KEY
 
 # Get session cookies
 curl -sL -X GET \

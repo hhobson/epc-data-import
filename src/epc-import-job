@@ -6,10 +6,26 @@ if [ $# -ne 1 ]; then
 fi
 
 CERT_TYPE=$1
+if [[ "$CERT_TYPE" != "domestic" && "$CERT_TYPE" != "non-domestic" && "$CERT_TYPE" != "display" ]]; then
+  echo "certificate type must be one of 'domestic', 'non-domestic' or 'display'"
+  exit 1
+elif [[ "$ENVIRONMENT" != "dev" && "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
+  echo "certificate type must be one of 'dev', 'staging' or 'production''"
+  exit 1
+fi
 
 # Extract
-bin/epc-extract $CERT_TYPE $ENVIRONMENT $EPC_OPEN_DATA_API_KEY
+bin/epc-extract $CERT_TYPE $ENVIRONMENT
 if [ $? -ne 0 ];then
   echo "`date -u +%FT%T` ERROR: epc-extract issue"
   exit 1
 fi
+
+# Transform & Load
+bin/epc-transform-load.py $CERT_TYPE
+if [ $? -ne 0 ]; then
+  echo "`date -u +%FT%T` ERROR: epc-transform-load.py issue"
+  exit 1
+fi
+
+echo "`date -u +%FT%T` SUCCESS: $CERT_TYPE job run"
