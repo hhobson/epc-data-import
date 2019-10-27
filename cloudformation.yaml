@@ -20,10 +20,14 @@ Parameters:
     Description: API Key for epc.opendatacommunities.org
     NoEcho: true
 
+  EPCOpenDataApiEmail:
+    Type: String
+    Description: Email associated with epc.opendatacommunities.org API key
+    NoEcho: true
+
   DatabaseName:
     Type: String
     Description: Postgres database name
-    Default: postgres
     MinLength: 1
     MaxLength: 16
     AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
@@ -32,12 +36,10 @@ Parameters:
   DatabaseHost:
     Type: String
     Description: Postgres database host
-    Default: localhost
 
   DatabaseUsername:
     Type: String
     Description: Username for Postgres database
-    Default: postgres
     NoEcho: true
     MinLength: 1
     MaxLength: 16
@@ -61,6 +63,26 @@ Mappings:
     PublicTwo:
       CIDR: 10.255.1.0/24
 
+  AmazonLinux2AMI:
+    us-east-1:
+      AMI: "ami-0f846c06eb372f19a"
+    us-west-1:
+      AMI: ami-0576e257e74a2ed6a
+    ap-northeast-1:
+      AMI: ami-057631c6a4834e06d
+    ap-south-1:
+      AMI: ami-0dae45b322e48a882
+    ap-southeast-1:
+      AMI: ami-0dfd0f227eabe017b
+    ca-central-1:
+      AMI: ami-0ab7a7298717e548d
+    eu-central-1:
+      AMI: ami-084ab95c0cbe247e5
+    eu-west-1:
+      AMI: ami-0963349a5568210b8
+    sa-east-1:
+      AMI: ami-089e78b2a3db5de22
+
 Resources:
   VPC:
     Type: AWS::EC2::VPC
@@ -73,7 +95,7 @@ Resources:
         - CIDR
       Tags:
         - Key: Name
-          Value: JustAnotherVPC
+          Value: !Sub JustAnotherVPC-$(Environment)
         - Key: enviroment
           Value: !Ref Environment
 
@@ -92,7 +114,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: JustAnotherSubnetUno
+          Value: !Sub JustAnotherSubnetUno-$(Environment)
         - Key: enviroment
           Value: !Ref Environment
 
@@ -111,7 +133,7 @@ Resources:
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
-          Value: JustAnotherSubnetDue
+          Value: !Sub JustAnotherSubnetDue-$(Environment)
         - Key: enviroment
           Value: !Ref Environment
 
@@ -120,7 +142,7 @@ Resources:
     Properties:
       Tags:
         - Key: Name
-          Value: JustAnotherInternetGateway
+          Value: !Sub JustAnotherInternetGateway-$(Environment)
         - Key: enviroment
           Value: !Ref Environment
 
@@ -136,7 +158,7 @@ Resources:
       VpcId: !Ref VPC
       Tags:
         - Key: Name
-          Value: JustAnotherRouteTable
+          Value: !Sub JustAnotherRouteTable-$(Environment)
         - Key: enviroment
           Value: !Ref Environment
 
@@ -186,43 +208,71 @@ Resources:
 
   EPCImportRepository:
     Type: AWS::ECR::Repository
-    Properties: 
+    Properties:
       RepositoryName: !Sub epc-import-${Environment}
-      Tags: 
+      Tags:
         - Key: enviroment
           Value: !Ref Environment
 
+  EC2LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub JustAnotherLaunchTemplate-${Environment}
+      LaunchTemplateData:
+        BlockDeviceMappings:
+          - DeviceName: "/dev/xvda"
+            Ebs:
+              Encrypted: true
+              # In GiB
+              VolumeSize: 100
+              VolumeType: gp2
+        IamInstanceProfile:
+          Arn: !GetAtt BatchComputeEnvInstanceProfile.Arn
+          Name: !Ref BatchComputeEnvInstanceProfile
+        ImageId: !FindInMap
+          - AmazonLinux2AMI
+          - !Ref AWS::Region
+          - AMI
+        KeyName: !Ref KeyPair
+        SecurityGroupIds:
+         - !Ref BatchComputeEnvSecurityGroup
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub JustAnotherEC2-${Environment}
+              - Key: enviroment
+                Value: !Ref Environment
 
   BatchComputeEnv:
     Type: AWS::Batch::ComputeEnvironment
-    Properties: 
-      ComputeEnvironmentName: !Sub JustAnotherComputeEnv-${Environment}
-      ComputeResources: 
-         AllocationStrategy: BEST_FIT_PROGRESSIVE
-         DesiredvCpus: 0
-         Ec2KeyPair: !Ref KeyPair
-         InstanceRole: !Ref BatchComputeEnvInstanceProfile
-         InstanceTypes: 
-          - optimal
-         MaxvCpus: 64
-         MinvCpus: 0
-         SecurityGroupIds: 
-          - !Ref BatchComputeEnvSecurityGroup
-         Subnets: 
-          - !Ref PublicSubnetOne
-          - !Ref PublicSubnetTwo
-         Tags: { "enviroment": { "Ref" : "Environment" } }
-         Type: EC2
-      ServiceRole: !Ref BatchComputeEnvServiceRole
+    Properties:
       State: Enabled
       Type: Managed
+      ComputeEnvironmentName: !Sub JustAnotherComputeEnv-${Environment}
+      ComputeResources:
+        AllocationStrategy: BEST_FIT_PROGRESSIVE
+        DesiredvCpus: 0
+        InstanceRole: !GetAtt BatchComputeEnvInstanceProfile.Arn
+        InstanceTypes:
+         - optimal
+        MaxvCpus: 64
+        MinvCpus: 0
+        LaunchTemplate:
+          LaunchTemplateId: !Ref EC2LaunchTemplate
+          Version: !GetAtt EC2LaunchTemplate.LatestVersionNumber
+        Subnets:
+         - !Ref PublicSubnetOne
+         - !Ref PublicSubnetTwo
+        Type: EC2
+      ServiceRole: !Ref BatchComputeEnvServiceRole
 
   BatchComputeEnvSecurityGroup:
     Type: AWS::EC2::SecurityGroup
-    Properties: 
+    Properties:
       GroupDescription: Access to Batch instances
       VpcId: !Ref VPC
-      Tags: 
+      Tags:
         - Key: enviroment
           Value: !Ref Environment
 
@@ -258,7 +308,7 @@ Resources:
                   - !Sub
                     - ${BucketArn}/*
                     - { BucketArn: !GetAtt EPCExtractFailBucket.Arn }
-      Tags: 
+      Tags:
         - Key: enviroment
           Value: !Ref Environment
 
@@ -283,7 +333,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSBatchServiceRole
       Path: /
-      Tags: 
+      Tags:
         - Key: enviroment
           Value: !Ref Environment
 
@@ -304,8 +354,9 @@ Resources:
       JobDefinitionName: epc-import-job
       ContainerProperties:
         Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${EPCImportRepository}:latest
-        Vcpus: 2
-        Memory: 2000
+        Vcpus: 4
+        # In MiB
+        Memory: 10000
         Command:
           - bin/epc-import-job
           - Ref::certtype
@@ -314,6 +365,8 @@ Resources:
             Value: !Ref Environment
           - Name: EPC_OPEN_DATA_API_KEY
             Value: !Ref EPCOpenDataApiKey
+          - Name: EPC_OPEN_DATA_API_EMAIL
+            Value: !Ref EPCOpenDataApiEmail
           - Name: DB_NAME
             Value: !Ref DatabaseName
           - Name: DB_HOST
@@ -326,6 +379,6 @@ Resources:
             Value: !Ref DatabasePassword
       Parameters: { "certtype" : "domestic" }
       RetryStrategy:
-         Attempts: 1
+        Attempts: 1
       Timeout:
-         AttemptDurationSeconds: 2700
+        AttemptDurationSeconds: 7200
