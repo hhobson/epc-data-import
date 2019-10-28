@@ -19,7 +19,7 @@ curl -sL -X GET \
 # Get zip file
 ZIP_FILE=all-$CERT_TYPE-certificates.zip
 # -L required as will redirect to an autorised S3 URL
-curl -L -X GET \
+curl -sL -X GET \
   "https://epc.opendatacommunities.org/files/$ZIP_FILE" \
   -b cookie-jar.txt \
   > $ZIP_FILE
@@ -84,16 +84,25 @@ valid_files
 VALID_FILES=$?
 # Import data to S3
 if [ $VALID_LAD_COUNT -ne 0 ] || [ $VALID_FILES -ne 0 ]; then
-  echo "`date -u +%FT%T` Error: Data Validation Failed"
   aws s3 cp $CERT_TYPE/ s3://epc-extract-fail-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
+    --quiet \
     --recursive \
     --exclude "*" \
     --include "*/*.csv"
+  echo "`date -u +%FT%T` Error: Data Validation Failed"
   exit 1
 else
   aws s3 cp $CERT_TYPE/ s3://epc-raw-$ENVIRONMENT/$CERT_TYPE/`date -u +%FT%T`/ \
+    --quiet \
     --recursive \
     --exclude "*" \
     --include "*/*.csv"
-  echo "`date -u +%FT%T` Success: Extract Job Done"
 fi
+
+# Clean up
+rm -rf $ZIP_FILE
+for f in $CERT_TYPE/*/recommendations.csv; do
+  rm $f
+done
+
+echo "`date -u +%FT%T` SUCCESS: Extract Job Done"

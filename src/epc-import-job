@@ -28,4 +28,4 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-echo "`date -u +%FT%T` SUCCESS: $CERT_TYPE job run"
+echo "`date -u +%FT%T` SUCCESS: $CERT_TYPE Job Run"

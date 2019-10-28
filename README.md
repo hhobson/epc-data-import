@@ -58,10 +58,21 @@ The required fields are:
 
 Further data validation could be carried out once the data has been loaded into a staging table. However, without further understanding of what the data use cases are it is hard to define what these test should be.
 
+**Improvement** -
+Due to size domestic EPC dataset job takes about an hour, the majority of which is spent on the transpormation & load step. The job is not time critical - as it is a periodic batch job - but optimisations can be made here.
+
+Benchmarking with containers/compute resources that have increased memory and vCPUs should be done to identify if this that will improve job runtime. Otherwise alternative transform and load options could be look at if job runtime needs to be reduced.
+
 ### Enrich w/ Lat/Lon
 The geocoding of records address could be carried out during the transformation & load step or once the data has been loaded into the staging table. The dataset contains duplicate addresses, so only unique addresses should be geocoded.
 
 If the geocoding is done after the data has been loaded to the staging table a third script could be added to the Batch job. This would call the external API for each unique address and add output to a second staging table. The data could then be added to the production table(s) using an `INSERT SELECT` with the query joining two staging tables.
+
+### Monitoring
+The Batch job logs are sent to CloudWatch, but there is currently no further monitoring.
+
+**Improvement** -
+Add an CloudWatch Event rule that can be used to trigger messages on Batch job stage changes. CloudWatch Events can invoke Lambda functions or publishe messages to SNS topic or Kinesis stream.
 
 ## Deploy AWS Infrastructure
 Will need to have awscli installed
